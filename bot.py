@@ -3,10 +3,13 @@ import logging
 import os
 import sys
 
+from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
-from main import ask_question
+from main import AnswerResult, ask_question
+
+load_dotenv()
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -27,6 +30,22 @@ async def send_text(update: Update, text: str) -> None:
         await update.message.reply_text(text[i : i + TELEGRAM_MAX])
 
 
+async def send_images(update: Update, images: list[bytes]) -> None:
+    for img_data in images:
+        try:
+            await update.message.reply_photo(photo=img_data)
+        except Exception as exc:
+            logger.warning("failed to send image: %s", exc)
+            await update.message.reply_text(f"(image: {len(img_data)} bytes, failed to send: {exc})")
+
+
+async def send_answer(update: Update, result: AnswerResult) -> None:
+    if result.text:
+        await send_text(update, result.text)
+    if result.images:
+        await send_images(update, result.images)
+
+
 async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     question = (update.message.text or "").strip()
     if not question:
@@ -42,9 +61,9 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
 
     try:
-        answer = await asyncio.to_thread(ask_question, question, status)
+        result = await asyncio.to_thread(ask_question, question, status)
         await loading.delete()
-        await send_text(update, answer)
+        await send_answer(update, result)
     except Exception as exc:
         logger.exception("question failed")
         try:
